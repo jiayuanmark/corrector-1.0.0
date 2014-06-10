@@ -1,0 +1,46 @@
+name:           corrector
+version:        1.0.0
+synopsis:       A Simple Spelling Corrector
+build-type:     Simple
+cabal-version:  >= 1.10
+category:       System
+
+
+extra-source-files:
+  README.md
+
+library
+  hs-source-dirs: src
+  exposed-modules:
+    Corrector
+  build-depends:
+    base < 5
+   ,bytestring
+   ,text
+   ,array
+   ,containers
+  default-language: Haskell2010
+  ghc-options: -Wall
+
+executable corrector
+  main-is: RunCorrector.hs
+  build-depends:
+    base < 5
+   ,corrector
+   ,array
+   ,containers
+  default-language: Haskell2010
+  ghc-options: -Wall
+
+test-suite test-corrector
+  hs-source-dirs: test
+  main-is: TestCorrector.hs
+  type: exitcode-stdio-1.0
+  build-depends:
+    base < 5
+   ,corrector
+   ,hspec
+   ,QuickCheck > 2.5
+  default-language: Haskell2010
+  ghc-options: -Wall
+
