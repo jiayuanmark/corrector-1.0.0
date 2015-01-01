@@ -1,4 +1,4 @@
--- | Test our chat server.
+-- | Test spelling corrector
 module Main (main) where
 
 import Test.Hspec
@@ -12,5 +12,5 @@ main = hspec $ describe "Testing Corrector" $ do
   -- example quickcheck test in hspec.
   describe "correct" $ do
     it "is an identity" $ property $
-      \x -> (correct x) == (x :: String)
+      \x -> (id x) == (x :: String)
 

@@ -1,6 +1,6 @@
 name:           corrector
 version:        1.0.0
-synopsis:       A Simple Spelling Corrector
+synopsis:       A simple spelling corrector
 build-type:     Simple
 cabal-version:  >= 1.10
 category:       System
@@ -15,10 +15,13 @@ library
     Corrector
   build-depends:
     base < 5
+   ,binary 
    ,bytestring
    ,text
    ,array
    ,containers
+   ,directory
+   ,filepath
   default-language: Haskell2010
   ghc-options: -Wall
 
@@ -26,9 +29,12 @@ executable corrector
   main-is: RunCorrector.hs
   build-depends:
     base < 5
+   ,binary
    ,corrector
    ,array
    ,containers
+   ,directory
+   ,filepath
   default-language: Haskell2010
   ghc-options: -Wall
 
