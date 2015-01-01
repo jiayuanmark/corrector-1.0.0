@@ -1,3 +1,5 @@
+{-# LANGUAGE BangPatterns #-}
+
 module Corrector (correct) where
 
 import qualified Data.ByteString.Lazy.Char8 as B
@@ -30,13 +32,14 @@ data Threshold = Threshold { jaccard :: Double
 
 -- | Top-level configuration
 config :: Threshold
-config = Threshold 0.7 2
+config = Threshold 0.5 1
 
 -- | Spelling correction
 correct :: IO ()
 correct = do
-  langmodel <- loadLangModel "../data/model" "../data/corpus"
+  langmodel <- loadLangModel "./data/model" "./data/corpus"
   let charmodel = buildCharGramIndex langmodel
+  putStrLn "Model ready..."
   input <- B.words . B.pack <$> getLine
   putStrLn $ B.unpack $ B.unwords $ inference input langmodel charmodel config
 
@@ -109,16 +112,18 @@ inference wds (Model (ugram,bgram)) char t = infer (tail wds) $ initprob
                          Just c  -> c
     prob  w          = (find ugram w) / n 
     cprb  w2 w1      = (find bgram (w1, w2)) / (find ugram w1)
-    initprob         = map (\x->(x, prob x)) $ getCandidate (head wds) char t
-    infer [] table   = [fst $ L.maximumBy (compare `F.on` snd) table]
-    infer (w:ws) table = sol : backtrack
+    -- table structured as a list of (score, word)
+    initprob         = map (\x->(prob x, x)) $ getCandidate (head wds) char t
+    -- forward-backward inference
+    infer []     !table   = [ snd $ L.foldl1' max table ]
+    infer (w:ws) !table   = sol : backtrack
       where
-        rank w'      = compare `F.on` \(w'',s) -> s * cprb w' w''
-        cw           = getCandidate w char t  
-        res          = map (\x -> (x, L.maximumBy (rank x) table)) cw
-        eval (w',(w'',s)) = (w', s * cprb w' w'')
-        backtrack    = infer ws $ map eval res
-        sol          = (fst . snd . head) $ dropWhile (\(w',_) -> w' /= head backtrack) res
+        rank w'      = \(s, w'') -> (s * cprb w' w'', w'')
+        cw           = getCandidate w char t
+        res          = map (\x -> (x, L.foldl1' max $ map (rank x) table)) cw
+        backtrack    = infer ws $ flip map res (\(w',(s,_)) -> (s,w'))
+        sol          = let match = head backtrack
+                       in (snd . snd . head) $ dropWhile ((/=) match . fst) res
 
 
 
