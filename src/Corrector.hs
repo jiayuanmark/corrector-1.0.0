@@ -3,9 +3,8 @@
 module Corrector (correct) where
 
 import qualified Data.ByteString.Lazy.Char8 as B
-import qualified Data.Function as F
 import qualified Data.List as L
-import qualified Data.Map.Lazy as M
+import qualified Data.Map.Strict as M
 import qualified System.FilePath.Posix as Path
 
 import Data.Binary
@@ -37,11 +36,13 @@ config = Threshold 0.5 1
 -- | Spelling correction
 correct :: IO ()
 correct = do
-  langmodel <- loadLangModel "./data/model" "./data/corpus"
-  let charmodel = buildCharGramIndex langmodel
-  putStrLn "Model ready..."
+  putStrLn "Enter model and corpus directory..."
+  [mdir, cdir] <- words <$> getLine
+  langmdl <- loadLangModel mdir cdir
+  let charidx = buildCharIndex langmdl
+  putStrLn "Model loaded."
   input <- B.words . B.pack <$> getLine
-  putStrLn $ B.unpack $ B.unwords $ inference input langmodel charmodel config
+  putStrLn $ B.unpack $ B.unwords $ inference langmdl charidx config input
 
 -- | Edit distance
 editDist :: B.ByteString -> B.ByteString -> Int64
@@ -85,45 +86,45 @@ buildLangModel dir = do
       buildModel (M.unionWith (+) ugram nugram) (M.unionWith (+) bgram nbgram) fs
 
 -- | Build character gram index
-buildCharGramIndex :: LangModel -> CharGramIndex
-buildCharGramIndex (Model (ugram, _)) = M.fromListWith (++) $ concatMap flat $ M.keys ugram
+buildCharIndex :: LangModel -> CharGramIndex
+buildCharIndex (Model (!ugram, _)) = M.fromListWith (++) $ concatMap flat $ M.keys ugram
   where flat token = map (\g -> (g, [token])) $ B.zip token (B.tail token)
 
 -- | Generate candidates
-getCandidate :: B.ByteString -> CharGramIndex -> Threshold -> [B.ByteString]
-getCandidate word indx t = filter editflt $ map fst $ filter jacdflt score
-  where gram      = B.zip word (B.tail word)
-        score     = M.toList $ M.fromListWith (+) $ concatMap find gram
+getCandidate :: CharGramIndex -> Threshold -> B.ByteString -> [B.ByteString]
+getCandidate indx t word = filter editflt $ map fst $ filter jacdflt score
+  where grams     = B.zip word (B.tail word)
+        score     = map (\x->(head x, length x)) $! (L.group . L.sort) $ concatMap find grams
         find g    = case M.lookup g indx of
                       Nothing -> []
-                      Just ws -> map (\w ->(w,1)) ws
-        norm x    = ((/) `F.on` fromIntegral) x (B.length word)
-        jacdflt x = norm (snd x) >= jaccard t
+                      Just wl -> wl
+        n         = fromIntegral $ length grams
+        jacdflt x = fromIntegral (snd x) >= (jaccard t) * n
         editflt x = editDist word x <= levedit t
 
 -- | Markov chain inference
-inference :: [B.ByteString] -> LangModel -> CharGramIndex -> Threshold -> [B.ByteString]
-inference [] _ _ _ = []
-inference wds (Model (ugram,bgram)) char t = infer (tail wds) $ initprob
+inference :: LangModel -> CharGramIndex -> Threshold -> [B.ByteString] -> [B.ByteString]
+inference _ _ _ [] = []
+inference (Model (!ugram,!bgram)) !chidx !param wds = infer (tail wds) $ initprob
   where
     n                = sum $ M.elems ugram
-    find table g     = case M.lookup g table of
+    score table g    = case M.lookup g table of
                          Nothing -> 0
                          Just c  -> c
-    prob  w          = (find ugram w) / n 
-    cprb  w2 w1      = (find bgram (w1, w2)) / (find ugram w1)
+    prob  w          = score ugram w / n 
+    cprb  w2 w1      = score bgram (w1,w2) / score ugram w1
+    candidates       = getCandidate chidx param
     -- table structured as a list of (score, word)
-    initprob         = map (\x->(prob x, x)) $ getCandidate (head wds) char t
+    initprob         = map (\x->(prob x, x)) $! candidates (head wds)
     -- forward-backward inference
     infer []     !table   = [ snd $ L.foldl1' max table ]
-    infer (w:ws) !table   = sol : backtrack
+    infer (w:ws) !table   = sol : sols
       where
-        rank w'      = \(s, w'') -> (s * cprb w' w'', w'')
-        cw           = getCandidate w char t
-        res          = map (\x -> (x, L.foldl1' max $ map (rank x) table)) cw
-        backtrack    = infer ws $ flip map res (\(w',(s,_)) -> (s,w'))
-        sol          = let match = head backtrack
-                       in (snd . snd . head) $ dropWhile ((/=) match . fst) res
+        rank w' = \(s, w'') -> (s * cprb w' w'', w'')
+        res     = map (\x -> (x, L.foldl1' max $ map (rank x) table)) $! candidates w
+        sols    = infer ws $! flip map res (\(w',(s,_)) -> (s,w'))
+        sol     = let match = head sols
+                  in (snd . snd . head) $ dropWhile ((/=) match . fst) res
 
 
 
