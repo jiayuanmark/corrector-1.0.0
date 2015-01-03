@@ -9,10 +9,11 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified System.FilePath.Posix as Path
 
+import Data.Array
 import Data.Binary
+import Data.Function
 import Control.Applicative
 import System.Directory
-import Data.Array
 
 import Debug.Trace (trace)
 
@@ -120,7 +121,7 @@ getCandidate indx t word = filter eflt (map fst (filter jflt score))
         score      :: [ (B.ByteString, Int) ]
         score       = M.toList $ M.fromListWith (+) (concatMap find (S.toList grams))
         denom w     = S.size grams + S.size (gram w)
-        jflt  (w,i) = fromIntegral i >= (jaccard t) * (fromIntegral (denom w))
+        jflt  (w,i) = ((/) `on` fromIntegral) i (denom w) >= jaccard t
         eflt  w     = editDist word w <= levedit t
 
 -- | Markov chain inference
