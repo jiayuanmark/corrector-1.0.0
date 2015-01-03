@@ -33,11 +33,15 @@ instance Binary LangModel where
 
 data Threshold = Threshold { jaccard :: Double
                            , levedit :: Int
+                           , lambda  :: Double
                            } deriving (Eq, Show)
 
 -- | Top-level configuration
 config :: Threshold
-config = Threshold 0.3 2
+config = Threshold { jaccard = 0.3
+                   , levedit = 2
+                   , lambda  = 0.8
+                   }
 
 -- | Spelling correction
 correct :: IO ()
@@ -121,8 +125,10 @@ getCandidate indx t word = filter eflt (map fst (filter jflt score))
         -- (w, intersection)
         score      :: [ (B.ByteString, Int) ]
         score       = M.toList $ M.fromListWith (+) (concatMap find (S.toList grams))
-        denom w     = S.size grams + S.size (gram w)
+        denom w     = S.size $ S.union grams (gram w)
+        -- jaccard distance filter
         jflt  (w,i) = ((/) `on` fromIntegral) i (denom w) >= jaccard t
+        -- edit distance filter
         eflt  w     = editDist word w <= levedit t
 
 -- | Markov chain inference
@@ -132,25 +138,27 @@ inference _ _ _ [] = []
 inference (Model !ugram !bgram) !chidx !param wds = infer (tail wds) $ initprob
   where
     n                = sum $ M.elems ugram
-    score table g    = case M.lookup g table of
+    count table g    = case M.lookup g table of
                          Nothing -> 0
                          Just c  -> c
-    prob  w          = score ugram w / n 
-    cprb  w2 w1      = score bgram (w1,w2) / score ugram w1
-    candidates       = getCandidate chidx param
+    c1               = lambda param
+    c2               = 1 - lambda param
+    -- smoothed bigram probability
+    prb  w           = count ugram w / n 
+    cprb w2 w1       = c1 * (count bgram (w1,w2)) / (count ugram w1) + c2 * (prb w1)
     -- table structured as a list of (score, word)
-    initprob         = map (\x->(prob x, x)) $! candidates (head wds)
+    candidates       = getCandidate chidx param
+    initprob         = map (\x->(log (prb x), x)) $! candidates (head wds)
     -- forward-backward inference
     infer _ t | trace ("infer: " ++ show t) False = undefined
     infer []     !table   = [ snd $ L.foldl1' max table ]
     infer (w:ws) !table   = sol : sols
       where
-        rank w' = \(s, w'') -> (s * cprb w' w'', w'')
+        rank w' = \(s, w'') -> (s + log (cprb w' w''), w'')
         res     = map (\x -> (x, L.foldl1' max $ map (rank x) table)) $! candidates w
         sols    = infer ws $! flip map res (\(w',(s,_)) -> (s,w'))
         sol     = let match = head sols
                   in (snd . snd . head) $ dropWhile ((/=) match . fst) res
-
 
 
 
