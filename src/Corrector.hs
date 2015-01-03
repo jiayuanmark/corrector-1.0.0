@@ -2,16 +2,19 @@
 
 module Corrector (correct) where
 
+import qualified Data.Array.Unboxed as UA
 import qualified Data.ByteString.Lazy.Char8 as B
 import qualified Data.List as L
-import qualified Data.Map.Strict as M
+import qualified Data.Map as M
+import qualified Data.Set as S
 import qualified System.FilePath.Posix as Path
 
 import Data.Binary
 import Control.Applicative
 import System.Directory
 import Data.Array
-import Data.Int
+
+import Debug.Trace (trace)
 
 type UnigramModel  = M.Map B.ByteString Double
 type BigramModel   = M.Map (B.ByteString, B.ByteString) Double
@@ -25,37 +28,23 @@ instance Binary LangModel where
   get = fmap Model get
 
 data Threshold = Threshold { jaccard :: Double
-                           , levedit :: Int64
-                           }
-                 deriving (Eq, Show)
+                           , levedit :: Int
+                           } deriving (Eq, Show)
 
 -- | Top-level configuration
 config :: Threshold
-config = Threshold 0.5 1
+config = Threshold 0.3 2
 
 -- | Spelling correction
 correct :: IO ()
 correct = do
   putStrLn "Enter model and corpus directory..."
-  [mdir, cdir] <- words <$> getLine
+  [mdir, cdir] <- L.words <$> getLine
   langmdl <- loadLangModel mdir cdir
-  let charidx = buildCharIndex langmdl
+  let chidx = buildCharIndex langmdl
   putStrLn "Model loaded."
   input <- B.words . B.pack <$> getLine
-  putStrLn $ B.unpack $ B.unwords $ inference langmdl charidx config input
-
--- | Edit distance
-editDist :: B.ByteString -> B.ByteString -> Int64
-editDist s1 s2 = table ! (m, n)
-  where m        = B.length s1
-        n        = B.length s2
-        table    = array ((0,0), (m,n)) [ (idx, dp idx) | idx <- range((0,0), (m,n)) ]
-        dp (0,j) = j
-        dp (i,0) = i
-        dp (i,j) = minimum $ [ 1 + table ! (i-1,j), 1 + table ! (i, j-1), sub i j ]
-        sub i j  = if B.index s1 (i-1) == B.index s2 (j-1)
-                   then table ! (i-1,j-1)
-                   else 1 + table ! (i-1, j-1)
+  putStrLn . B.unpack . B.unwords $ inference langmdl chidx config input
 
 -- | Load language model
 loadLangModel :: FilePath -> FilePath -> IO LangModel
@@ -85,6 +74,32 @@ buildLangModel dir = do
       let nbgram = M.fromList $ counterize $ bigramize tklist
       buildModel (M.unionWith (+) ugram nugram) (M.unionWith (+) bgram nbgram) fs
 
+-- | Edit distance
+editDist :: B.ByteString -> B.ByteString -> Int
+editDist b1 b2 | trace ("edit distance between: " ++ (show b1) ++ " " ++ (show b2)) False = undefined
+editDist b1 b2 = table ! (m,n)
+  where s1       = B.unpack b1
+        s2       = B.unpack b2
+        m        = length s1
+        n        = length s2
+
+        a1      :: UA.UArray Int Char
+        a1       = UA.array (1,m) (zip [1..m] s1)
+
+        a2      :: UA.UArray Int Char
+        a2       = UA.array (1,n) (zip [1..n] s2)
+
+        bnds     = ((0,0), (m,n))
+        table   :: Array (Int,Int) Int
+        table    = array bnds [ (ij, dp ij) | ij <- range bnds ]
+        
+        dp (0,j) = j
+        dp (i,0) = i
+        dp (i,j) = L.foldl1' min [ 1 + table ! (i-1,j), 1 + table ! (i,j-1), sub i j ]
+        sub i j  = if a1 UA.! i == a2 UA.! j
+                   then table ! (i-1,j-1)
+                   else 1 + table ! (i-1, j-1)
+
 -- | Build character gram index
 buildCharIndex :: LangModel -> CharGramIndex
 buildCharIndex (Model (!ugram, _)) = M.fromListWith (++) $ concatMap flat $ M.keys ugram
@@ -92,18 +107,22 @@ buildCharIndex (Model (!ugram, _)) = M.fromListWith (++) $ concatMap flat $ M.ke
 
 -- | Generate candidates
 getCandidate :: CharGramIndex -> Threshold -> B.ByteString -> [B.ByteString]
-getCandidate indx t word = filter editflt $ map fst $ filter jacdflt score
-  where grams     = B.zip word (B.tail word)
-        score     = map (\x->(head x, length x)) $! (L.group . L.sort) $ concatMap find grams
-        find g    = case M.lookup g indx of
-                      Nothing -> []
-                      Just wl -> wl
-        n         = fromIntegral $ length grams
-        jacdflt x = fromIntegral (snd x) >= (jaccard t) * n
-        editflt x = editDist word x <= levedit t
+getCandidate _ _ w | trace ("candidate generation for: " ++ show w) False = undefined
+getCandidate indx t word = filter eflt (map fst (filter jflt score))
+  where gram w      = S.fromList $ B.zip w (B.tail w)
+        find g      = case M.lookup g indx of
+                        Nothing -> []
+                        Just wl -> wl
+        grams       = gram word
+        -- (w, intersection)
+        score       = map (\x->(head x, length x)) $! L.group . L.sort $ concatMap find $ S.toList grams
+        denom w     = (S.size grams) + (S.size (gram w))
+        jflt  (w,i) = fromIntegral i >= (jaccard t) * (fromIntegral (denom w))
+        eflt  w     = editDist word w <= levedit t
 
 -- | Markov chain inference
 inference :: LangModel -> CharGramIndex -> Threshold -> [B.ByteString] -> [B.ByteString]
+inference _ _ _ w | trace ("inference of: " ++ show w) False = undefined
 inference _ _ _ [] = []
 inference (Model (!ugram,!bgram)) !chidx !param wds = infer (tail wds) $ initprob
   where
@@ -117,6 +136,7 @@ inference (Model (!ugram,!bgram)) !chidx !param wds = infer (tail wds) $ initpro
     -- table structured as a list of (score, word)
     initprob         = map (\x->(prob x, x)) $! candidates (head wds)
     -- forward-backward inference
+    infer _ t | trace ("infer: " ++ show t) False = undefined
     infer []     !table   = [ snd $ L.foldl1' max table ]
     infer (w:ws) !table   = sol : sols
       where

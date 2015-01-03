@@ -22,7 +22,7 @@ library
    ,directory
    ,filepath
   default-language: Haskell2010
-  ghc-options: -O2 -Wall +RTS -H2g -K2g -RTS
+  ghc-options: -Wall -O2 -fforce-recomp -rtsopts "-with-rtsopts=-K300m"
 
 executable corrector
   main-is: RunCorrector.hs
@@ -35,7 +35,7 @@ executable corrector
    ,directory
    ,filepath
   default-language: Haskell2010
-  ghc-options: -O2 -Wall +RTS -H2g -K2g -RTS
+  ghc-options: -Wall -O2 -fforce-recomp -rtsopts "-with-rtsopts=-K300m"
 
 test-suite test-corrector
   hs-source-dirs: test
@@ -47,5 +47,5 @@ test-suite test-corrector
    ,hspec
    ,QuickCheck > 2.5
   default-language: Haskell2010
-  ghc-options: -O2 -Wall +RTS -H2g -K2g -RTS
+  ghc-options: -Wall -O2 -fforce-recomp -rtsopts "-with-rtsopts=-K300m"
 
