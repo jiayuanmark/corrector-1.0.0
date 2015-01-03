@@ -43,6 +43,7 @@ test-suite test-corrector
   type: exitcode-stdio-1.0
   build-depends:
     base < 5
+   ,bytestring 
    ,corrector
    ,hspec
    ,QuickCheck > 2.5

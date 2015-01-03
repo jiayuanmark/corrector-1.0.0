@@ -1,21 +1,22 @@
 {-# LANGUAGE BangPatterns #-}
 
-module Corrector (correct) where
+module Corrector (correct, editDist) where
 
-import qualified Data.Array.Unboxed as UA
 import qualified Data.ByteString.Lazy.Char8 as B
 import qualified Data.List as L
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified System.FilePath.Posix as Path
 
-import Data.Array
+import Data.Array (Array)
+import Data.Array.IArray (array, (!), range)
+import Data.Array.Unboxed (UArray)
 import Data.Binary
-import Data.Function
+import Data.Function (on)
+import Debug.Trace (trace)
 import Control.Applicative
 import System.Directory
 
-import Debug.Trace (trace)
 
 type UnigramModel  = M.Map B.ByteString Double
 type BigramModel   = M.Map (B.ByteString, B.ByteString) Double
@@ -86,11 +87,11 @@ editDist b1 b2 = table ! (m,n)
         m        = length s1
         n        = length s2
 
-        a1      :: UA.UArray Int Char
-        a1       = UA.array (1,m) (zip [1..m] s1)
+        a1      :: UArray Int Char
+        a1       = array (1,m) (zip [1..m] s1)
 
-        a2      :: UA.UArray Int Char
-        a2       = UA.array (1,n) (zip [1..n] s2)
+        a2      :: UArray Int Char
+        a2       = array (1,n) (zip [1..n] s2)
 
         bnds     = ((0,0), (m,n))
         table   :: Array (Int,Int) Int
@@ -99,7 +100,7 @@ editDist b1 b2 = table ! (m,n)
         dp (0,j) = j
         dp (i,0) = i
         dp (i,j) = L.foldl1' min [ 1 + table ! (i-1,j), 1 + table ! (i,j-1), sub i j ]
-        sub i j  = if a1 UA.! i == a2 UA.! j
+        sub i j  = if a1 ! i == a2 ! j
                    then table ! (i-1,j-1)
                    else 1 + table ! (i-1, j-1)
 
