@@ -20,12 +20,14 @@ type UnigramModel  = M.Map B.ByteString Double
 type BigramModel   = M.Map (B.ByteString, B.ByteString) Double
 type CharGramIndex = M.Map (Char, Char) [B.ByteString]
 
-data LangModel = Model (UnigramModel, BigramModel)
+data LangModel = Model UnigramModel BigramModel
                  deriving (Show)
 
 instance Binary LangModel where
-  put (Model m) = put m
-  get = fmap Model get
+  put (Model u b) = put u >> put b
+  get = do u <- get :: Get UnigramModel
+           b <- get :: Get BigramModel
+           return $ Model u b 
 
 data Threshold = Threshold { jaccard :: Double
                            , levedit :: Int
@@ -67,7 +69,7 @@ buildLangModel dir = do
     bigramize tokens = zipWith (,) tokens (tail tokens)
 
     buildModel ugram bgram _ | ugram `seq` bgram `seq` False = undefined 
-    buildModel ugram bgram [] = return $ Model (ugram, bgram)
+    buildModel ugram bgram [] = return $ Model ugram bgram
     buildModel ugram bgram (f:fs) = do
       tklist <- tokenize f
       let nugram = M.fromList $ counterize tklist
@@ -76,7 +78,7 @@ buildLangModel dir = do
 
 -- | Edit distance
 editDist :: B.ByteString -> B.ByteString -> Int
-editDist b1 b2 | trace ("edit distance between: " ++ (show b1) ++ " " ++ (show b2)) False = undefined
+editDist b1 b2 | trace ("edit distance between " ++ (show b1) ++ " and " ++ (show b2)) False = undefined
 editDist b1 b2 = table ! (m,n)
   where s1       = B.unpack b1
         s2       = B.unpack b2
@@ -102,7 +104,7 @@ editDist b1 b2 = table ! (m,n)
 
 -- | Build character gram index
 buildCharIndex :: LangModel -> CharGramIndex
-buildCharIndex (Model (!ugram, _)) = M.fromListWith (++) $ concatMap flat $ M.keys ugram
+buildCharIndex (Model !ugram _) = M.fromListWith (++) $ concatMap flat $ M.keys ugram
   where flat token = map (\g -> (g, [token])) $ B.zip token (B.tail token)
 
 -- | Generate candidates
@@ -112,11 +114,12 @@ getCandidate indx t word = filter eflt (map fst (filter jflt score))
   where gram w      = S.fromList $ B.zip w (B.tail w)
         find g      = case M.lookup g indx of
                         Nothing -> []
-                        Just wl -> wl
+                        Just wl -> zip wl [1,1..]
         grams       = gram word
         -- (w, intersection)
-        score       = map (\x->(head x, length x)) $! L.group . L.sort $ concatMap find $ S.toList grams
-        denom w     = (S.size grams) + (S.size (gram w))
+        score      :: [ (B.ByteString, Int) ]
+        score       = M.toList $ M.fromListWith (+) (concatMap find (S.toList grams))
+        denom w     = S.size grams + S.size (gram w)
         jflt  (w,i) = fromIntegral i >= (jaccard t) * (fromIntegral (denom w))
         eflt  w     = editDist word w <= levedit t
 
@@ -124,7 +127,7 @@ getCandidate indx t word = filter eflt (map fst (filter jflt score))
 inference :: LangModel -> CharGramIndex -> Threshold -> [B.ByteString] -> [B.ByteString]
 inference _ _ _ w | trace ("inference of: " ++ show w) False = undefined
 inference _ _ _ [] = []
-inference (Model (!ugram,!bgram)) !chidx !param wds = infer (tail wds) $ initprob
+inference (Model !ugram !bgram) !chidx !param wds = infer (tail wds) $ initprob
   where
     n                = sum $ M.elems ugram
     score table g    = case M.lookup g table of
