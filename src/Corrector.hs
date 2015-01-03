@@ -144,7 +144,7 @@ inference (Model !ugram !bgram) !chidx !param wds = infer (tail wds) $ initprob
     c1               = lambda param
     c2               = 1 - lambda param
     -- smoothed bigram probability
-    prb  w           = count ugram w / n 
+    prb  w           = count ugram w / n
     cprb w2 w1       = c1 * (count bgram (w1,w2)) / (count ugram w1) + c2 * (prb w1)
     -- table structured as a list of (score, word)
     candidates       = getCandidate chidx param
