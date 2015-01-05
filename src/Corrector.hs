@@ -13,6 +13,7 @@ import Data.Array.IArray (array, (!), range)
 import Data.Array.Unboxed (UArray)
 import Data.Binary
 import Data.Function (on)
+import Data.Maybe (fromJust)
 import Debug.Trace (trace)
 import Control.Applicative
 import System.Directory
@@ -158,7 +159,7 @@ inference (Model !ugram !bgram) !chidx !param wds = infer (tail wds) $ initprob
         res     = map (\x -> (x, L.foldl1' max $ map (rank x) table)) $! candidates w
         sols    = infer ws $! flip map res (\(w',(s,_)) -> (s,w'))
         sol     = let match = head sols
-                  in (snd . snd . head) $ dropWhile ((/=) match . fst) res
+                  in  snd . snd . fromJust $ L.find ((==) match . fst) res
 
 
 
